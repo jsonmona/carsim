@@ -105,22 +105,21 @@ class TaskBase(object):
 
 
 class TurnLeftTask(TaskBase):
-    def __init__(self):
+    def __init__(self, least_wait=None):
         super(TurnLeftTask, self).__init__()
         self.timer = None
         self.streak = 0
         self.wait_flip = False
+        self.least_wait = 1 if least_wait is None else least_wait
 
     def on_camera(self, has_lane, lane, img, black_mask, green_mask, lane_mask):
         img_h, img_w = img.shape[:2]
         slope = lane[-2]
 
-        print(slope, self.streak, self.wait_flip)
-
         if self.timer is None:
             self.timer = time.time()
             self.wait_flip = 0 < slope
-        elif time.time() - self.timer < 1 or not has_lane or (self.wait_flip and 0 < slope):
+        elif time.time() - self.timer < self.least_wait or not has_lane or (self.wait_flip and 0 < slope):
             return 0, MAX_STEER
         else:
             self.wait_flip = False
@@ -271,7 +270,7 @@ class Drive(object):
             WaitCrossTask(),
             TurnLeftTask(),
             WaitGreenMarkerTask(),
-            TurnLeftTask(),
+            TurnLeftTask(least_wait=5),
             WaitCrossTask(),
             TurnLeftTask(),
             SleepTask(5),
@@ -340,7 +339,7 @@ class Drive(object):
 def test_drive():
     from carsim import CarSimulator
 
-    sim = CarSimulator(jitter=False)
+    sim = CarSimulator(jitter=True)
     sim.reset()
 
     drive = Drive()
