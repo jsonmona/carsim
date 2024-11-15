@@ -13,7 +13,7 @@ from drive import Drive
 
 
 def warping(image):
-    source = np.float32([[140, 100], [0, 480], [500, 100], [640, 480]])
+    source = np.float32([[147, 104], [0, 343], [487, 113], [636, 355]])
     destination = np.float32([[0, 0], [0, 480], [480, 0], [480, 480]])
     
     M = cv2.getPerspectiveTransform(source, destination)
