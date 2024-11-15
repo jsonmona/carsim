@@ -13,13 +13,13 @@ from drive import Drive
 
 
 def warping(image):
-    sz = 120
+    sz = 200
     source = np.float32([[147, 104], [0, 343], [487, 113], [636, 355]])
     destination = np.float32([[0, 0], [0, sz], [sz, 0], [sz, sz]])
     
     M = cv2.getPerspectiveTransform(source, destination)
     
-    warp_image = cv2.warpPerspective(image, M, (120, 120), flags=cv2.INTER_LINEAR)
+    warp_image = cv2.warpPerspective(image, M, (sz, sz), flags=cv2.INTER_LINEAR)
 
     return warp_image
 

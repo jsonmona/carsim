@@ -59,9 +59,9 @@ def detect_green(lane, green_mask):
 
 
 def sliding_window_lane(mask):
-    WINDOW_WIDTH = 200
-    WINDOW_HEIGHT = 17
-    WINDOW_CNT = 25
+    WINDOW_WIDTH = 80
+    WINDOW_HEIGHT = 8
+    WINDOW_CNT = 20
 
     h, w = mask.shape
 
@@ -362,7 +362,7 @@ class Drive(object):
     def __init__(self):
         self.do_movement = None
         self.lane = None
-        self.task = FirstTask()
+        self.task = TaskBase()
 
     def on_camera(self, img):
         black_mask = color_filter(img, [0, 0, 0])
