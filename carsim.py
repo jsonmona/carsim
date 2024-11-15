@@ -16,8 +16,8 @@ VIEWPORT_HEIGHT = 0.22
 SKY_COLOR = (220, 220, 220)
 
 
-class CarSimulator:
-    def __init__(self, bg_path=None):
+class CarSimulator(object):
+    def __init__(self, jitter=False, bg_path=None):
         if bg_path is not None:
             self.background = cv2.imread(bg_path, cv2.IMREAD_COLOR)
         elif os.path.exists('bg.jpg'):
@@ -25,6 +25,7 @@ class CarSimulator:
         else:
             self.background = np.zeros((40, 27, 3), dtype='uint8')
             self.background += 240
+        self.jitter = not not jitter
         self.reset()
     
     def reset(self):
@@ -39,6 +40,11 @@ class CarSimulator:
         :param rot: Rotational speed of the vehicle in radians per second.
         :param dt: Delta time to advance. Defaults to 30 fps.
         """
+
+        if self.jitter:
+            speed *= np.random.uniform(0.9, 1.1)
+            rot += np.random.uniform(-0.05, 0.05)
+            rot *= np.random.uniform(0.9, 1.1)
 
         self.pos += np.array([np.sin(self.yaw), np.cos(self.yaw)]) * speed * dt
         self.yaw += rot * dt
