@@ -23,8 +23,8 @@ def color_filter(img, key_color):
 def detect_cross(black_mask, left=True, right=True):
     h, w = black_mask.shape
 
-    left_val = np.mean(black_mask[h-30:, :w//2]) > 255 * 0.5
-    right_val = np.mean(black_mask[h-30:, w//2:]) > 255 * 0.5
+    left_val = np.mean(black_mask[h-30:, :w//2]) > 255 * 0.6
+    right_val = np.mean(black_mask[h-30:, w//2:]) > 255 * 0.6
     
     return (not left or left_val) and (not right or right_val)
 
@@ -125,7 +125,7 @@ def stanley(lane, car_speed, img_h, img_w):
     lane_angle = np.polyval(derived_lane, img_h * 0.9)
 
     k = 0.01
-    theta_err = -lane_angle * 2
+    theta_err = -lane_angle
     lat_err = distance * np.cos(lane_angle)
     return theta_err + np.arctan(k * lat_err / car_speed)
 
@@ -404,7 +404,7 @@ class Drive(object):
 def test_drive():
     from carsim import CarSimulator
 
-    sim = CarSimulator(jitter=False)
+    sim = CarSimulator(jitter=True)
     sim.reset()
 
     drive = Drive()

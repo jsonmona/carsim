@@ -47,7 +47,7 @@ class CarSimulator(object):
             rot *= np.random.uniform(0.9, 1.1)
 
         self.pos += np.array([np.sin(self.yaw), np.cos(self.yaw)]) * speed * dt
-        self.yaw += rot * dt
+        self.yaw += rot * dt * 2  # why?
     
     def render(self):
         tex_h, tex_w, _ = self.background.shape

@@ -29,7 +29,8 @@ class RobotControlNode():
         self.drive.do_movement = self.update_movement
         self.bridge = CvBridge()
         rospy.init_node('robot_control_node', anonymous=False)
-        rospy.Subscriber('/main_camera/image_raw/compressed', CompressedImage, self.camera_callback)
+        #rospy.Subscriber('/main_camera/image_raw/compressed', CompressedImage, self.camera_callback)
+        rospy.Subscriber('/main_camera/image_raw', CompressedImage, self.camera_callback)
         self.pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
 
     
@@ -37,6 +38,7 @@ class RobotControlNode():
         image = self.bridge.compressed_imgmsg_to_cv2(data, desired_encoding="bgr8")
         image = warping(image)
         self.drive.on_camera(image)
+        cv2.waitKey(1)
         
 
     def update_movement(self, speed, rot):
