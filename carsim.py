@@ -43,11 +43,11 @@ class CarSimulator(object):
 
         if self.jitter:
             speed *= np.random.uniform(0.9, 1.1)
-            rot += np.random.uniform(-0.05, 0.05)
+            rot += np.random.uniform(-0.02, 0.02)
             rot *= np.random.uniform(0.9, 1.1)
 
         self.pos += np.array([np.sin(self.yaw), np.cos(self.yaw)]) * speed * dt
-        self.yaw += rot * dt * 2  # why?
+        self.yaw += -rot * dt
     
     def render(self):
         tex_h, tex_w, _ = self.background.shape

@@ -125,8 +125,8 @@ def stanley(lane, car_speed, img_h, img_w):
     lane_angle = np.polyval(derived_lane, img_h * 0.9)
 
     k = 0.01
-    theta_err = -lane_angle
-    lat_err = distance * np.cos(lane_angle)
+    theta_err = lane_angle
+    lat_err = -distance * np.cos(lane_angle)
     return theta_err + np.arctan(k * lat_err / car_speed)
 
 
@@ -362,7 +362,7 @@ class Drive(object):
     def __init__(self):
         self.do_movement = None
         self.lane = None
-        self.task = TaskBase()
+        self.task = FirstTask()
 
     def on_camera(self, img):
         black_mask = color_filter(img, [0, 0, 0])
