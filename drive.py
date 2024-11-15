@@ -30,8 +30,8 @@ def detect_cross(black_mask, left=True, right=True):
 
 
 def detect_green(lane, green_mask):
-    BLOB_SIZE = 40
-    LANE_DIST = 100
+    BLOB_SIZE = 20
+    LANE_DIST = 1000
     _, mask = cv2.threshold(green_mask, 0, 255, cv2.THRESH_OTSU)
 
     max_val = -1
@@ -42,11 +42,11 @@ def detect_green(lane, green_mask):
         xlane = np.polyval(lane, y)
 
         for x in range(0, mask.shape[1], BLOB_SIZE // 2):
-            if x < xlane - LANE_DIST or xlane + LANE_DIST < x:
+            if x + BLOB_SIZE < xlane - LANE_DIST or xlane + LANE_DIST < x:
                 continue
 
             window = mask[y:y+BLOB_SIZE, x:x+BLOB_SIZE]
-            curr_val = np.mean(window).astype('int32')
+            curr_val = np.mean(window)
             if max_val < curr_val:
                 max_val = curr_val
                 max_x = x + BLOB_SIZE // 2
@@ -188,17 +188,17 @@ class FirstTask(TaskBase):
             if self.last_move is None:
                 self.last_move = now_time
             elif now_time - self.last_move < 2.5:
-                return 0, np.radians(-30)
+                return 0, np.radians(30)
             else:
                 self.last_move = None
                 self.timer = 0
                 self.state = 3
-            return 0, np.radians(-30)
+            return 0, np.radians(30)
         elif self.state == 3:
             green = detect_green(lane, green_mask)
             if green is None:
                 return
-            if 300 <= green[1]:
+            if 170 <= green[1]:
                 self.last_move = None
                 self.state = 4
                 self.timer = 0
@@ -207,12 +207,12 @@ class FirstTask(TaskBase):
                 print('[Task 1] U-turn')
                 self.last_move = now_time
             elif now_time - self.last_move < 10:
-                return 0, np.radians(-30)
+                return 0, np.radians(30)
             else:
                 self.last_move = None
                 self.timer = 0
                 self.state = 5
-            return 0, np.radians(-30)
+            return 0, np.radians(30)
         elif self.state == 5:
             if detect_cross(black_mask):
                 print('[Task 1] Waiting for cross...', self.timer)
@@ -237,12 +237,12 @@ class FirstTask(TaskBase):
             if self.last_move is None:
                 self.last_move = now_time
             elif now_time - self.last_move < 2.5:
-                return 0, np.radians(-30)
+                return 0, np.radians(30)
             else:
                 self.last_move = None
                 self.timer = 0
                 self.state = 8
-            return 0, np.radians(-30)
+            return 0, np.radians(30)
         else:
             self.completed = True
 
@@ -287,12 +287,12 @@ class SecondTask(TaskBase):
             if self.last_move is None:
                 self.last_move = now_time
             elif now_time - self.last_move < 2.5:
-                return 0, np.radians(30)
+                return 0, np.radians(-30)
             else:
                 self.last_move = None
                 self.timer = 0
                 self.state = 3
-            return 0, np.radians(30)
+            return 0, np.radians(-30)
         else:
             self.completed = True
 
@@ -315,9 +315,10 @@ class ThirdTask(TaskBase):
             if now_time - self.last_move < 5:
                 return
             green = detect_green(lane, green_mask)
+            print(green)
             if green is None:
                 return
-            if 300 <= green[1]:
+            if 170 <= green[1]:
                 print('[Task 3] Seen green '+str(self.state)+' times')
                 self.last_move = now_time
                 self.state += 1
@@ -348,12 +349,12 @@ class ThirdTask(TaskBase):
             if self.last_move is None:
                 self.last_move = now_time
             elif now_time - self.last_move < 2.5:
-                return 0, np.radians(-30)
+                return 0, np.radians(30)
             else:
                 self.last_move = None
                 self.timer = 0
                 self.state = 5
-            return 0, np.radians(-30)
+            return 0, np.radians(30)
         else:
             self.completed = True
 
