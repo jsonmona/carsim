@@ -271,7 +271,7 @@ class Drive(object):
             SleepTask(0.2),
             TurnLeftTask(),
             WaitGreenMarkerTask(),
-            TurnLeftTask(least_wait=2),
+            TurnLeftTask(least_wait=3.5),
             WaitCrossTask(),
             TurnLeftTask(),
             SleepTask(5),
