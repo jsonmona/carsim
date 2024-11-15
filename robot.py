@@ -44,7 +44,7 @@ class RobotControlNode():
 
     def update_movement(self, speed, rot):
         movement = Twist()
-        movement.linear.x = speed * 2
+        movement.linear.x = speed
         movement.angular.z = rot * 2
         self.pub.publish(movement)
 
