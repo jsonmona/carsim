@@ -268,6 +268,7 @@ class Drive(object):
         self.task_idx = 0
         self.tasks = [
             WaitCrossTask(),
+            SleepTask(0.2),
             TurnLeftTask(),
             WaitGreenMarkerTask(),
             TurnLeftTask(least_wait=5),
@@ -275,11 +276,13 @@ class Drive(object):
             TurnLeftTask(),
             SleepTask(5),
             WaitCrossTask(left=False),
+            SleepTask(0.2),
             TurnRightTask(),
             WaitGreenMarkerTask(),
             SleepTask(3),
             WaitGreenMarkerTask(),
             WaitCrossTask(right=False),
+            SleepTask(0.2),
             TurnLeftTask(),
             WaitGreenMarkerTask(),
             HaltTask(),
