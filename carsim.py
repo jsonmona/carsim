@@ -17,7 +17,7 @@ SKY_COLOR = (0, 0, 0)
 
 
 class CarSimulator(object):
-    def __init__(self, jitter=False, bg_path=None):
+    def __init__(self, jitter=False, delay=0, bg_path=None):
         if bg_path is not None:
             self.background = cv2.imread(bg_path, cv2.IMREAD_COLOR)
         elif os.path.exists('bg.jpg'):
@@ -25,12 +25,17 @@ class CarSimulator(object):
         else:
             self.background = np.zeros((40, 27, 3), dtype='uint8')
             self.background += 240
+        self.delay = delay + 1
         self.jitter = not not jitter
         self.reset()
     
     def reset(self):
         self.yaw = np.float64(0)
         self.pos = START_POSITION.copy()
+        self.output_buffer = []
+
+        for _ in range(self.delay):
+            self.output_buffer.append(self.render_now())
     
     def step(self, speed, rot, dt=1/30):
         """Advances simulator one step forward.
@@ -48,8 +53,15 @@ class CarSimulator(object):
 
         self.pos += np.array([np.sin(self.yaw), np.cos(self.yaw)]) * speed * dt
         self.yaw += -rot * dt
+
+        self.output_buffer.append(self.render_now())
+        if self.delay < len(self.output_buffer):
+            del self.output_buffer[0]
     
     def render(self):
+        return self.output_buffer[0]
+    
+    def render_now(self):
         tex_h, tex_w, _ = self.background.shape
         viewport_w, viewport_h = RESOLUTION
 
