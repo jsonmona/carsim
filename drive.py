@@ -9,11 +9,18 @@ import time
 
 
 MAX_SPEED = 0.5
-MAX_STEER = np.radians(90)
+MAX_STEER = np.radians(60)
+
+# 시뮬레이터를 위해, 시계를 이만큼 더 느리게 측정함
+# 실제 주행시는 1로 설정
+CLOCK_SLOWDOWN = 10
 
 # 차량의 회전 중심점으로부터 Bird's eye view 처리 후 이미지 하단까지의 거리 (픽셀 단위)
 # Bird's eye view 처리 후 이미지의 높이가 실제 몇 미터인지 재서 비율을 구하면 됨
-DIST_CAM_FROM_MASS = 250
+DIST_CAM_FROM_MASS = 300
+
+# 1px이 몇 미터인지 (meter per pixel)
+PIXEL_TO_METER = 0.0001
 
 
 def color_filter(img, key_color):
@@ -53,7 +60,7 @@ class SlidingWindowLaneDetector(object):
         pass
 
     def predict(self, mask):
-        MIN_WINDOW_CNT = 10
+        MIN_WINDOW_CNT = 15
         WINDOW_WIDTH = 80
         WINDOW_HEIGHT = 8
         WINDOW_CNT = 22
@@ -290,36 +297,51 @@ class TaskBase(object):
     def __init__(self):
         self.completed = False
     
-    def make_next_task(self):
-        return None
+    def on_start(self, prev_task):
+        return
 
     def on_camera(self, *args):
-        return None
+        return
 
 
 class TurnStillTask(TaskBase):
-    def __init__(self, target_deg, direction, finish_on_lane=False):
+    def __init__(self, target_deg, direction, finish_on_lane=False, finish_on_task=None):
+        """
+        :param bool finish_on_lane: 차선이 보이면 쫑료할지 여부
+        :param TaskBase | None finish_on_task: 주어진 task가 completed가 되면 종료
+        """
         super(TurnStillTask, self).__init__()
         self.target_rad = np.radians(target_deg, dtype='float32')
         if direction == 'left':
             self.rot_speed = MAX_STEER
         else:
             self.rot_speed = -MAX_STEER
+        self.finish_on_lane = finish_on_lane
+        self.finish_on_task = finish_on_task
         self.frames_no_estimate = 2
         self.frames_can_estimate = 7
         self.turning_speed = self.rot_speed
-        self.start_time = None
+        self.start_time = 0
         self.prev_lines = []
         self.prev_time = None
     
     def set_degree(self, target_deg):
         self.target_rad = np.radians(target_deg, dtype='float32')
     
-    def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
-        now_time = time.time()
+    def on_start(self, prev_task):
+        self.start_time = time.time()
 
-        if self.start_time is None:
-            self.start_time = now_time
+        if self.finish_on_task is not None:
+            self.on_start(prev_task)
+    
+    def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
+        MIN_ROT_RATIO = 0.78
+
+        now_time = time.time()
+        elapsed = (now_time - self.start_time) / CLOCK_SLOWDOWN
+
+        if self.finish_on_task is not None:
+            self.finish_on_task.on_camera(has_lane, lane, img, lane_mask, green_mask)
 
         if 0 < self.frames_no_estimate:
             self.frames_no_estimate -= 1
@@ -340,8 +362,8 @@ class TurnStillTask(TaskBase):
                 visualize = np.expand_dims(edges, -1)
                 visualize = np.tile(visualize, [1, 1, 3])
                 for line in lines:
-                    pt1 = int(line[0, 0]), int(line[0, 1])
-                    pt2 = int(line[0, 2]), int(line[0, 3])
+                    pt1 = int(line[0]), int(line[1])
+                    pt2 = int(line[2]), int(line[3])
                     cv2.line(edges, pt1, pt2, (0, 255, 0))
 
                 cv2.imshow('turn', edges)
@@ -354,7 +376,7 @@ class TurnStillTask(TaskBase):
 
                 # estimate rotating speed
                 if 0 < len(self.prev_lines) and 0 < len(lines) and now_time - self.prev_time < 999:
-                    dt = now_time - self.prev_time
+                    dt = (now_time - self.prev_time) / CLOCK_SLOWDOWN
 
                     similarity = np.dot(lines, self.prev_lines.T)
                     most_similar_curr = np.argmax(similarity)
@@ -365,44 +387,80 @@ class TurnStillTask(TaskBase):
 
                     # Within seemingly valid range and has correct sign
                     if 0.1 <= np.abs(estimated_speed) <= np.abs(self.rot_speed) * 3 and 0 < estimated_speed * self.rot_speed:
-                        self.turning_speed = self.turning_speed * 0.8 + estimated_speed * 0.2
-                        print(estimated_speed, self.turning_speed, self.rot_speed)
+                        # Doesn't work
+                        # self.turning_speed = self.turning_speed * 0.8 + estimated_speed * 0.2
+                        pass
 
                 # update history
                 self.prev_lines = lines
                 self.prev_time = now_time
         
-        if self.target_rad <= np.abs(self.turning_speed) * (now_time - self.start_time):
+        if self.target_rad <= np.abs(self.turning_speed) * elapsed:
+            self.completed = True
+        
+        if self.finish_on_lane and has_lane and self.target_rad * MIN_ROT_RATIO <= np.abs(self.turning_speed) * elapsed:
+            print('Completed early by lane')
+            self.completed = True
+        
+        if self.finish_on_task is not None and self.finish_on_task.completed:
+            print('Completed early by inner task')
             self.completed = True
 
         return 0, self.rot_speed
 
 
 class TurnMovingTask(TaskBase):
-    def __init__(self, direction, speed=None):
+    def __init__(self, direction, finish_on_lane=False):
+        """
+        :param str direction: 회전하는 방향 "left" 혹은 "right"
+        :param bool finish_on_lane: 일정 시간 이상 회전한 후 차선이 보이면 완료 처리할지 여부
+        """
         super(TurnMovingTask, self).__init__()
         if direction == 'left':
-            self.rot_speed = MAX_STEER
-            self.slope_sign = 1
+            self.rotate_sign = 1
         else:
-            self.rot_speed = -MAX_STEER
-            self.slope_sign = -1
+            self.rotate_sign = -1
         
-        self.speed = MAX_SPEED if speed is None else speed
-        self.wait_flip = None
-        
+        self.finish_on_lane = finish_on_lane
+        self.speed = MAX_SPEED / 4
+        self.rot_time = 0
+        self.rot_speed = 0
+        self.start_time = 0
     
-    def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
-        slope = lane[-2] * self.slope_sign
-
-        if self.wait_flip is None:
-            self.wait_flip = slope <= 0.2
-        elif not has_lane or (self.wait_flip and 0.2 < slope):
-            self.wait_flip = False
+    def on_start(self, prev_task):
+        dist_to_cross = DIST_CAM_FROM_MASS + 100
+        if isinstance(prev_task, WaitCrossTask):
+            if prev_task.detected_dist is not None:
+                dist_to_cross = prev_task.detected_dist
         
-        if not self.wait_flip and 0 <= slope:
+        dist_to_cross *= PIXEL_TO_METER
+
+        # 90 deg * radius
+        quarter_circle_arc = 0.5 * np.pi * dist_to_cross
+        self.rot_time = quarter_circle_arc / self.speed
+        self.rot_speed = self.rotate_sign * 0.5 * np.pi / self.rot_time
+
+        if MAX_STEER < np.abs(self.rot_speed):
+            print('WARN: Trying to oversteer (max=%.0f deg, target=%.1f deg)' % (np.degrees(MAX_STEER), np.degrees(self.rot_speed)))
+
+        self.start_time = time.time()
+
+    def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
+        MIN_ROT_RATIO = 0.8
+
+        has_proper_lane = has_lane and np.abs(lane[-2]) < 0.2
+
+        elapsed = (time.time() - self.start_time) / CLOCK_SLOWDOWN
+        
+        if self.rot_time <= elapsed:
             self.completed = True
             return
+
+        if self.finish_on_lane and has_proper_lane and self.rot_time * MIN_ROT_RATIO <= elapsed:
+            print('Completed early by lane')
+            # Rotate just one more frame
+            self.completed = True
+            return self.speed, self.rot_speed
 
         return self.speed, self.rot_speed
 
@@ -416,7 +474,7 @@ class SleepTask(TaskBase):
     def on_camera(self, *args):
         if self.timer is None:
             self.timer = time.time()
-        elif self.sec <= time.time() - self.timer:
+        elif self.sec <= (time.time() - self.timer) / CLOCK_SLOWDOWN:
             self.completed = True
 
 
@@ -429,13 +487,122 @@ class HaltTask(TaskBase):
     def on_camera(self, *args):
         if self.timer is None:
             self.timer = time.time()
-        elif self.sec is not None and self.sec <= time.time() - self.timer:
+        elif self.sec is not None and self.sec <= (time.time() - self.timer) / CLOCK_SLOWDOWN:
             self.completed = True
         
         return 0, 0
 
+
+class WaitCrossTask(TaskBase):
+    def __init__(self, far=0.9, left=False, right=False):
+        """
+        :param float far: 0-1 range to detect upto how far away (0=near, 1=far)
+        :param bool left: Whether to wait for left side of cross
+        :param bool right: Whether to wait for right side of cross
+        """
+        super(WaitCrossTask, self).__init__()
+
+        if not left and not right:
+            raise RuntimeError('Either left or right needs to be present!')
+        
+        self.near = 1 - far
+        self.left = left
+        self.right = right
+        self.detected_dist = None
+    
+    def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
+        HEIGHT_WINDOW = 50
+        LANE_WIDTH = 100
+
+        if not has_lane:
+            return
+        
+        h, w = lane_mask.shape
+
+        y_far = np.clip(self.near * h - HEIGHT_WINDOW, 0, h - 1).astype('int32')
+        y_near = np.clip(self.near * h + HEIGHT_WINDOW, y_far + 1, h).astype('int32')
+        roi = lane_mask[y_far:y_near]
+        lane_x = np.polyval(lane, np.arange(y_far, y_near, dtype='float32'))
+
+        edges = cv2.Canny(roi, 50, 120)
+        visualize = np.tile(np.expand_dims(edges, axis=-1), [1, 1, 3])
+        lines = cv2.HoughLinesP(edges, 1, np.radians(0.1), 20, None, 40, 40)
+
+        if lines is None:
+            lines = np.empty((0, 4), dtype='float32')
+        else:
+            lines = lines[:, 0].astype('float32')
+        
+        direction = lines[:, :2] - lines[:, 2:]
+        magnitude = np.linalg.norm(direction, keepdims=True, axis=-1)
+        direction /= magnitude
+        
+        # 해당 선분이 차선의 왼쪽인지 오른쪽인지 표시
+        left = np.zeros(len(lines), dtype='bool')
+        right = np.zeros(len(lines), dtype='bool')
+
+        lane_left = lane_x - (LANE_WIDTH / 2)
+        lane_right = lane_x + (LANE_WIDTH / 2)
+
+        lane_direction = np.asarray([
+            np.polyval(lane, y_near) - np.polyval(lane, y_far),
+            y_near - y_far
+        ], dtype='float32')
+        lane_direction /= np.linalg.norm(lane_direction)
+        
+        for i in range(len(lines)):
+            # 차선과 가깝거나 수평인 직선 제거
+            if 0.2 <= np.abs(np.dot(direction[i], lane_direction)):
+                continue
+            
+            mean_y = np.mean(lines[i, 1::2])
+            lane_idx = np.clip((mean_y - y_far).astype('int32'), 0, len(lane_x))
+            if np.all(lane_left[lane_idx] < lines[i, 0::2]) and np.all(lines[i, 0::2] < lane_right[lane_idx]):
+                continue
+            if np.any(lines[i, 0::2] <= lane_left[lane_idx]):
+                left[i] = True
+            if np.any(lane_right[lane_idx] <= lines[i, 0::2]):
+                right[i] = True
+
+        accepted = None
+        
+        if self.left and self.right:
+            if 2 <= np.sum(left) and 2 <= np.sum(right):
+                accepted = left | right
+        elif self.left:
+            if 2 <= np.sum(left):
+                accepted = left
+        else:
+            if 2 <= np.sum(right):
+                accepted = right
+
+        if accepted is not None:
+            self.detected_dist = DIST_CAM_FROM_MASS + h - np.max(lines[accepted, 1::2])
+            self.completed = True
+
+        # visualize
+        for i, line in enumerate(lines):
+            pt1 = int(line[0]), int(line[1])
+            pt2 = int(line[2]), int(line[3])
+            if left[i] and right[i]:
+                color = (255, 255, 0)
+            elif left[i]:
+                color = (255, 0, 0)
+            elif right[i]:
+                color = (0, 255, 0)
+            else:
+                color = (0, 0, 255)
+            cv2.line(visualize, pt1, pt2, color, 2)
+
+        cv2.imshow('cross', visualize)
+        cv2.moveWindow('cross', 300, 400)
+
+
 class WaitGreenMarkerTask(TaskBase):
     def __init__(self, far=None):
+        """
+        :param float far: 0-1 range to detect upto how far away (0=near, 1=far)
+        """
         super(WaitGreenMarkerTask, self).__init__()
         if far is not None:
             self.far = far
@@ -443,37 +610,34 @@ class WaitGreenMarkerTask(TaskBase):
             self.far = 0.5
     
     def on_camera(self, has_lane, lane, img, lane_mask, green_mask):
-        BLOB_SIZE = 20
+        KERNEL_SIZE = 35
         LANE_DIST = 100
         THRESHOLD = 180
 
+        if not has_lane:
+            return
+
         img_h = img.shape[0]
-        _, mask = cv2.threshold(green_mask, 0, 255, cv2.THRESH_OTSU)
+        y_start = max(0, int(img_h * (1 - self.far) - KERNEL_SIZE))
 
-        max_val = -1
-        max_x = 0
-        max_y = 0
+        mask = green_mask[y_start:]
+        mask = cv2.blur(mask, (KERNEL_SIZE, KERNEL_SIZE))
 
-        for y in range(0, mask.shape[0], BLOB_SIZE // 4):
-            xlane = np.polyval(lane, y)
+        mask_idx = np.argmax(mask, axis=-1)
 
-            for x in range(0, mask.shape[1], BLOB_SIZE // 4):
-                if x + BLOB_SIZE < xlane - LANE_DIST or xlane + LANE_DIST < x:
-                    continue
+        for y_offset, x in enumerate(mask_idx):
+            xlane = np.polyval(lane, y_start + y_offset)
+            
+            if x < xlane - LANE_DIST or xlane + LANE_DIST < x:
+                continue
 
-                window = mask[y:y+BLOB_SIZE, x:x+BLOB_SIZE]
-                curr_val = np.mean(window)
-                if max_val < curr_val:
-                    max_val = curr_val
-                    max_x = x + BLOB_SIZE // 2
-                    max_y = y + BLOB_SIZE // 2
-        
-        if THRESHOLD <= max_val and img_h * (1 - self.far) < max_y:
-            self.completed = True
+            if THRESHOLD <= mask[y_offset, x]:
+                self.completed = True
 
 
 class Drive(object):
     def __init__(self):
+        self.last_log = time.time()
         self.do_movement = None
         self.lane_detector = SlidingWindowLaneDetector()
         self.lane = None
@@ -481,25 +645,24 @@ class Drive(object):
         self.curr_rot = 0
         self.task_idx = 0
         self.tasks = [
-            TurnStillTask(90, 'left'),
-            HaltTask(),
+            # TurnStillTask(90, 'left'),
+            # HaltTask(),
             # SleepTask(999999),
 
-            WaitGreenMarkerTask(1.0),
+            WaitCrossTask(left=True, right=True),
             TurnMovingTask('right'),
             WaitGreenMarkerTask(0.2),
             TurnStillTask(90, 'right'),
-            # obj 1
-            TurnStillTask(90, 'right', True),
+            HaltTask(0.5),
+            TurnStillTask(90, 'right', finish_on_lane=True),
 
-            WaitGreenMarkerTask(0.8),
             TurnMovingTask('right'),
             WaitGreenMarkerTask(),
             SleepTask(1),
             # obj 2
             WaitGreenMarkerTask(1.0),
             TurnStillTask(90, 'left'),
-            TurnStillTask(90, 'right', True),
+            TurnStillTask(90, 'right', finish_on_lane=True),
             WaitGreenMarkerTask(),
             # obj 3
             WaitGreenMarkerTask(),
@@ -510,6 +673,8 @@ class Drive(object):
         ]
 
     def on_camera(self, img):
+        start_time = time.time()
+
         cv2.imshow('img', img)
         cv2.moveWindow('img', 0, 0)
 
@@ -535,6 +700,7 @@ class Drive(object):
                 self.task_idx += 1
                 if self.task_idx < len(self.tasks):
                     print('Task is now '+repr(self.tasks[self.task_idx]))
+                    self.tasks[self.task_idx].on_start(now_task)
                 else:
                     print('Task is now None')
         else:
@@ -553,6 +719,11 @@ class Drive(object):
         self.curr_speed = self.curr_speed * 0.6 + new_speed * 0.4
         self.curr_rot = self.curr_rot * 0.6 + new_rot * 0.4
 
+        end_time = time.time()
+        if 5 <= end_time - self.last_log:
+            self.last_log = end_time
+            print('Processing took %.1f ms' % (end_time - start_time,))
+
         if self.do_movement is not None:
             self.do_movement(self.curr_speed, self.curr_rot)
 
@@ -563,6 +734,8 @@ def test_drive():
     sim = CarSimulator(jitter=False, delay=0)
     sim.reset()
 
+    sim.step(0.5, 0, 1)
+
     drive = Drive()
     drive.do_movement = sim.step
 
@@ -570,7 +743,7 @@ def test_drive():
         cam = sim.render()
         drive.on_camera(cam)
         
-        if cv2.waitKey(33) & 0xff == ord('q'):
+        if cv2.waitKey(330) & 0xff == ord('q'):
             break
         if cv2.getWindowProperty('img', cv2.WND_PROP_VISIBLE) < 1:
             break
